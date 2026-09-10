@@ -4,7 +4,7 @@ A single-file, dependency-free web tool that applies a **decorrelation stretch**
 and to a live camera feed, entirely in the browser. Nothing is uploaded; no image data
 leaves the page.
 
-**Live:** https://shannietron.github.io/decorrelation_stretch/
+**Live:** https://shan.mp/decorrelation_stretch/
 
 Decorrelation stretching is the technique behind the vivid false-colour Mars and ASTER
 images: the three colour bands are rotated into their principal axes, each axis is
