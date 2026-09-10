@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decorrelation Stretch</title>
+<style>
+:root{
+  --bg:#f3f3f0;--fg:#1c1c1a;--muted:#6b6b66;--panel:#ffffff;--border:#d9d9d3;
+  --accent:#b8481d;--accent-fg:#fff;--warn-bg:#fff4e0;--warn-fg:#6b3b00;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#131313;--fg:#e7e5df;--muted:#9c9c95;--panel:#1d1d1d;--border:#343434;
+        --accent:#e2773f;--accent-fg:#111;--warn-bg:#3a2a10;--warn-fg:#f3c98a}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding:0 16px 48px}
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding:18px 0 10px;border-bottom:1px solid var(--border)}
+h1{font-size:20px;margin:0;font-weight:600}
+header p{margin:0;color:var(--muted)}
+header a{color:inherit}
+nav{display:flex;gap:6px;margin:14px 0}
+nav button{background:none;border:1px solid var(--border);color:var(--fg);padding:8px 16px;border-radius:6px;cursor:pointer;font:inherit}
+nav button[aria-selected=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:flex-end;background:var(--panel);
+  border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px}
+.controls label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.controls select,.controls input[type=number]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:5px 7px;min-width:96px}
+.controls .presets{display:flex;gap:6px;align-items:flex-end}
+button.sm,.presets button{font:inherit;font-size:13px;padding:6px 10px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}
+button.sm:hover,.presets button:hover{border-color:var(--accent)}
+button.sm[aria-pressed=true]{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button.sm:disabled{opacity:.45;cursor:default}
+.drop{border:2px dashed var(--border);border-radius:10px;padding:34px 16px;text-align:center;color:var(--muted);transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--accent);background:var(--panel)}
+.drop .link{color:var(--accent);text-decoration:underline;cursor:pointer}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:16px}
+.card .top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.card .name{font-weight:600;overflow-wrap:anywhere}
+.card .meta{color:var(--muted);font-size:12px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:720px){.pair{grid-template-columns:1fr}}
+.pair figure{margin:0}
+.pair canvas{width:100%;max-width:100%;height:auto;display:block;border-radius:4px;background:#000}
+.pair figcaption{font-size:12px;color:var(--muted);margin-top:4px;display:flex;justify-content:space-between;gap:8px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.warn{background:var(--warn-bg);color:var(--warn-fg);border-radius:6px;padding:8px 10px;margin-top:10px;font-size:13px}
+details{margin-top:10px}
+summary{cursor:pointer;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 20px;margin-top:8px;font-family:var(--mono);font-size:12px}
+.stats h4{margin:0 0 4px;font:600 12px/1.3 system-ui,sans-serif;color:var(--muted)}
+.stats table{border-collapse:collapse}
+.stats td,.stats th{padding:1px 8px 1px 0;text-align:right;white-space:nowrap}
+.stats th{font-weight:normal;color:var(--muted)}
+.scatter{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;max-width:520px}
+.scatter figure{margin:0}
+.scatter canvas{width:100%;aspect-ratio:1;max-width:100%;border:1px solid var(--border);border-radius:4px;background:var(--bg)}
+.scatter figcaption{font-size:11px;color:var(--muted);text-align:center}
+.camrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.camrow .fps{font-family:var(--mono);color:var(--muted);margin-left:auto}
+.camview{background:#000;border-radius:8px;overflow:hidden;max-width:960px}
+.camview canvas{width:100%;max-width:100%;height:auto;display:block}
+#camMsg{color:var(--muted);margin:8px 0 0}
+footer{margin-top:28px;color:var(--muted);font-size:12px;border-top:1px solid var(--border);padding-top:10px}
+footer a{color:inherit}
+</style>
+</head>
+<body>
+<header>
+  <h1>Decorrelation Stretch</h1>
+  <p>Alley (JPL, 1996) algorithm, in the browser. Nothing leaves this page.</p>
+</header>
+
+<nav role="tablist">
+  <button role="tab" id="tabBtnImages" aria-selected="true" data-tab="images">Images</button>
+  <button role="tab" id="tabBtnCamera" aria-selected="false" data-tab="camera">Live camera</button>
+</nav>
+
+<div class="controls" id="controls">
+  <label>Matrix
+    <select id="optMode">
+      <option value="correlation">Correlation (equal band weight)</option>
+      <option value="covariance">Covariance (weight by variance)</option>
+    </select>
+  </label>
+  <label>Target mean
+    <input type="number" id="optMean" value="127.5" step="0.5" min="0" max="255">
+  </label>
+  <label>Target sigma
+    <input type="number" id="optSigma" value="50" step="1" min="1" max="200">
+  </label>
+  <label>Tol (contrast clip)
+    <select id="optTol">
+      <option value="0">0 (off)</option>
+      <option value="0.005">0.005</option>
+      <option value="0.01">0.01</option>
+      <option value="0.02">0.02</option>
+    </select>
+  </label>
+  <label>Sample stride
+    <select id="optStride">
+      <option value="0">auto</option>
+      <option value="1">1 (all pixels)</option>
+      <option value="2">2</option>
+      <option value="3">3 (paper)</option>
+      <option value="5">5</option>
+    </select>
+  </label>
+  <div class="presets">
+    <button type="button" id="presetNasa" title="Target mean 127.5, sigma 50, correlation matrix">NASA / ASTER</button>
+    <button type="button" id="presetMatlab" title="Keep each band's own mean and sigma, as MATLAB decorrstretch does by default">MATLAB (preserve)</button>
+  </div>
+</div>
+
+<section id="tab-images">
+  <div class="drop" id="drop">
+    <p>Drop images here, paste, or <span class="link" id="pickLink">choose files</span>.
+      <input type="file" id="fileInput" multiple accept="image/*" hidden></p>
+    <p style="font-size:12px;margin:0">Everything is processed locally. Large images are capped at 4096 px on the long side.</p>
+  </div>
+  <div id="cards"></div>
+</section>
+
+<section id="tab-camera" hidden>
+  <div class="camrow">
+    <button class="sm" id="camStart">Start camera</button>
+    <button class="sm" id="camSwitch" disabled>Switch camera</button>
+    <button class="sm" id="camFreeze" aria-pressed="false" disabled>Freeze stats</button>
+    <button class="sm" id="camSnap" disabled>Snapshot PNG</button>
+    <label style="font-size:12px;color:var(--muted)">Smoothing
+      <input type="range" id="camAlpha" min="0.02" max="1" step="0.02" value="0.15" style="vertical-align:middle">
+    </label>
+    <span class="fps" id="fps"></span>
+  </div>
+  <div class="camview"><canvas id="camOut" width="640" height="480"></canvas></div>
+  <p id="camMsg">Camera access needs https:// or localhost on phones. Desktop Chrome and Safari also allow it from file://.</p>
+  <div id="camWarn"></div>
+  <details><summary>Live statistics</summary><div id="camStats" class="stats"></div></details>
+  <video id="camVideo" playsinline muted hidden></video>
+</section>
+
+<footer>
+  Method: R. E. Alley, <em>Algorithm Theoretical Basis Document for Decorrelation Stretch</em>, v2.2, JPL, 1996.
+  Option semantics follow MATLAB <a href="https://www.mathworks.com/help/images/ref/decorrstretch.html" target="_blank" rel="noopener">decorrstretch</a>.
+</footer>
+
+<script>
+// ===== DCS CORE BEGIN =====
+const DCS = (() => {
+  // Pass 1: band statistics from a strided subsample. data is RGBA Uint8ClampedArray.
+  function computeStats(data, w, h, stride, maxSamples) {
+    stride = Math.max(1, stride | 0);
+    maxSamples = maxSamples || 120000;
+    const cap = Math.ceil(w / stride) * Math.ceil(h / stride);
+    const keepEvery = Math.max(1, Math.ceil(cap / maxSamples));
+    const samples = new Uint8Array(Math.min(cap, maxSamples) * 3);
+    let n = 0, k = 0, sk = 0;
+    let s0 = 0, s1 = 0, s2 = 0, s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0;
+    const step = 4 * stride;
+    for (let y = 0; y < h; y += stride) {
+      let i = y * w * 4;
+      for (let x = 0; x < w; x += stride, i += step) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        s0 += r; s1 += g; s2 += b;
+        s00 += r * r; s01 += r * g; s02 += r * b; s11 += g * g; s12 += g * b; s22 += b * b;
+        n++;
+        if ((k++ % keepEvery) === 0 && sk < samples.length) { samples[sk++] = r; samples[sk++] = g; samples[sk++] = b; }
+      }
+    }
+    return finishStats(n, [s0, s1, s2], [s00, s01, s02, s11, s12, s22], samples.subarray(0, sk));
+  }
+
+  function finishStats(n, S, X, samples) {
+    const mu = [0, 0, 0], cov = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    if (n >= 2) {
+      for (let l = 0; l < 3; l++) mu[l] = S[l] / n;
+      const idx = [[0, 1, 2], [1, 3, 4], [2, 4, 5]];
+      for (let l = 0; l < 3; l++) for (let m = 0; m < 3; m++)
+        cov[l][m] = (X[idx[l][m]] - S[l] * S[m] / n) / (n - 1);
+    }
+    return withDerived({ n, mu, cov, samples });
+  }
+
+  // sd and correlation from a covariance matrix (also used after temporal smoothing)
+  function withDerived(st) {
+    const eps = 1e-9;
+    const sd = [0, 1, 2].map(l => Math.sqrt(Math.max(0, st.cov[l][l])));
+    const corr = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let l = 0; l < 3; l++) for (let m = 0; m < 3; m++)
+      corr[l][m] = (sd[l] > eps && sd[m] > eps) ? st.cov[l][m] / (sd[l] * sd[m]) : (l === m ? 1 : 0);
+    st.sd = sd; st.corr = corr;
+    return st;
+  }
+
+  // Cyclic Jacobi eigen-decomposition of a symmetric 3x3. vectors[k][i] = component k of eigenvector i.
+  function eigenSym3(M) {
+    const a = [[M[0][0], M[0][1], M[0][2]], [M[1][0], M[1][1], M[1][2]], [M[2][0], M[2][1], M[2][2]]];
+    const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    for (let sweep = 0; sweep < 60; sweep++) {
+      const off = Math.abs(a[0][1]) + Math.abs(a[0][2]) + Math.abs(a[1][2]);
+      if (off < 1e-15) break;
+      for (let p = 0; p < 2; p++) for (let q = p + 1; q < 3; q++) {
+        if (Math.abs(a[p][q]) < 1e-300) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+        const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+        for (let k = 0; k < 3; k++) { const kp = a[k][p], kq = a[k][q]; a[k][p] = c * kp - s * kq; a[k][q] = s * kp + c * kq; }
+        for (let k = 0; k < 3; k++) { const pk = a[p][k], qk = a[q][k]; a[p][k] = c * pk - s * qk; a[q][k] = s * pk + c * qk; }
+        for (let k = 0; k < 3; k++) { const kp = v[k][p], kq = v[k][q]; v[k][p] = c * kp - s * kq; v[k][q] = s * kp + c * kq; }
+      }
+    }
+    return { values: [a[0][0], a[1][1], a[2][2]], vectors: v };
+  }
+
+  // Build the 3x3 transform T and offset so that out = T * in + offset.
+  // opts: mode 'correlation'|'covariance', targetMean number|'preserve', targetSigma number|'preserve', tol 0..0.5
+  function buildTransform(stats, opts) {
+    const { mu, sd, cov, corr, samples } = stats;
+    const mode = opts.mode === 'covariance' ? 'covariance' : 'correlation';
+    const warnings = [];
+    const eps = 1e-9;
+    const pre = [1, 1, 1];
+    let M;
+    if (mode === 'correlation') {
+      M = corr.map(r => r.slice());
+      for (let b = 0; b < 3; b++) {
+        if (sd[b] > eps) pre[b] = 1 / sd[b];
+        else { pre[b] = 0; warnings.push(`Band ${'RGB'[b]} has zero variance; it cannot be stretched.`); }
+      }
+    } else {
+      M = cov;
+      for (let b = 0; b < 3; b++) if (sd[b] <= eps) warnings.push(`Band ${'RGB'[b]} has zero variance; it cannot be stretched.`);
+    }
+    const eig = eigenSym3(M);
+    const trace = eig.values[0] + eig.values[1] + eig.values[2];
+    const s = [0, 0, 0];
+    let lmax = 0;
+    for (let i = 0; i < 3; i++) {
+      const l = eig.values[i];
+      if (l > lmax) lmax = l;
+      if (l > 1e-7 * Math.max(trace, eps)) s[i] = 1 / Math.sqrt(l);
+      else { s[i] = 0; warnings.push(`Eigenvalue ${i + 1} is ~0 (one band is a linear combination of the others); that axis collapses to the mean.`); }
+    }
+    if (trace > eps && lmax / trace > 0.98)
+      warnings.push('One principal axis holds >98% of the variance. The minor axes are being amplified heavily, so expect noise to be exaggerated (paper, p. 9).');
+
+    const R = eig.vectors;
+    const core = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) {
+      let acc = 0; for (let i = 0; i < 3; i++) acc += R[a][i] * s[i] * R[b][i]; core[a][b] = acc;
+    }
+    const tsig = opts.targetSigma === 'preserve' ? sd.slice() : [+opts.targetSigma, +opts.targetSigma, +opts.targetSigma];
+    const tmean = opts.targetMean === 'preserve' ? mu.slice() : [+opts.targetMean, +opts.targetMean, +opts.targetMean];
+    const T = new Float64Array(9), offset = new Float64Array(3);
+    for (let a = 0; a < 3; a++) {
+      let o = tmean[a];
+      for (let b = 0; b < 3; b++) { const t = tsig[a] * core[a][b] * pre[b]; T[a * 3 + b] = t; o -= t * mu[b]; }
+      offset[a] = o;
+    }
+
+    // Optional linear contrast stretch (MATLAB 'Tol'): clip per-band percentiles of the output to [0,255].
+    let limits = null;
+    const tol = +opts.tol || 0;
+    if (tol > 0 && samples && samples.length >= 90) {
+      const ns = samples.length / 3;
+      const y = [new Float32Array(ns), new Float32Array(ns), new Float32Array(ns)];
+      for (let k = 0, j = 0; k < ns; k++, j += 3) {
+        const r = samples[j], g = samples[j + 1], b = samples[j + 2];
+        for (let a = 0; a < 3; a++) y[a][k] = T[a * 3] * r + T[a * 3 + 1] * g + T[a * 3 + 2] * b + offset[a];
+      }
+      limits = [];
+      for (let a = 0; a < 3; a++) {
+        y[a].sort();
+        const lo = y[a][Math.min(ns - 1, Math.floor(tol * (ns - 1)))];
+        const hi = y[a][Math.max(0, Math.ceil((1 - tol) * (ns - 1)))];
+        limits.push([lo, hi]);
+        if (hi - lo > eps) {
+          const sc = 255 / (hi - lo);
+          for (let b = 0; b < 3; b++) T[a * 3 + b] *= sc;
+          offset[a] = (offset[a] - lo) * sc;
+        }
+      }
+    }
+    return { T: Float32Array.from(T), offset: Float32Array.from(offset), eig, warnings, mode, tsig, tmean, limits };
+  }
+
+  // Pass 2: apply to every pixel. Uint8ClampedArray assignment rounds and clamps to 0..255.
+  function applyTransform(src, dst, T, off) {
+    const t0 = T[0], t1 = T[1], t2 = T[2], t3 = T[3], t4 = T[4], t5 = T[5], t6 = T[6], t7 = T[7], t8 = T[8];
+    const o0 = off[0], o1 = off[1], o2 = off[2];
+    const n = src.length;
+    for (let i = 0; i < n; i += 4) {
+      const r = src[i], g = src[i + 1], b = src[i + 2];
+      dst[i] = t0 * r + t1 * g + t2 * b + o0;
+      dst[i + 1] = t3 * r + t4 * g + t5 * b + o1;
+      dst[i + 2] = t6 * r + t7 * g + t8 * b + o2;
+      dst[i + 3] = 255;
+    }
+  }
+
+  return { computeStats, finishStats, withDerived, eigenSym3, buildTransform, applyTransform };
+})();
+if (typeof module !== 'undefined') module.exports = DCS;
+// ===== DCS CORE END =====
+</script>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const MAX_SIDE = 4096;
+
+  // ---------- shared options ----------
+  function readOpts() {
+    const meanEl = $('optMean'), sigEl = $('optSigma');
+    return {
+      mode: $('optMode').value,
+      targetMean: meanEl.disabled ? 'preserve' : parseFloat(meanEl.value) || 0,
+      targetSigma: sigEl.disabled ? 'preserve' : Math.max(0.1, parseFloat(sigEl.value) || 50),
+      tol: parseFloat($('optTol').value) || 0,
+      stride: parseInt($('optStride').value, 10) || 0,
+    };
+  }
+  function autoStride(w, h) {
+    // aim for ~100k samples, never coarser than every 8th pixel, at least 1000 samples like the paper
+    const s = Math.max(1, Math.min(8, Math.floor(Math.sqrt((w * h) / 100000))));
+    return (Math.ceil(w / s) * Math.ceil(h / s) < 1000) ? 1 : s;
+  }
+  $('presetNasa').addEventListener('click', () => {
+    $('optMode').value = 'correlation'; $('optMean').value = '127.5'; $('optSigma').value = '50';
+    $('optMean').disabled = false; $('optSigma').disabled = false; $('optTol').value = '0'; onOptsChanged();
+  });
+  $('presetMatlab').addEventListener('click', () => {
+    $('optMode').value = 'correlation'; $('optMean').disabled = true; $('optSigma').disabled = true;
+    $('optMean').value = ''; $('optSigma').value = ''; $('optMean').placeholder = 'input'; $('optSigma').placeholder = 'input';
+    onOptsChanged();
+  });
+  for (const id of ['optMode', 'optMean', 'optSigma', 'optTol', 'optStride']) {
+    $(id).addEventListener('input', () => {
+      if ((id === 'optMean' || id === 'optSigma') && $(id).disabled) return;
+      onOptsChanged();
+    });
+    $(id).addEventListener('focus', () => { if ($(id).disabled) return; });
+  }
+  // typing into a disabled preserve field is impossible; clicking NASA re-enables
+  function onOptsChanged() { reprocessAllCards(); camDirty = true; }
+
+  // ---------- stats rendering ----------
+  const f = (x, d = 3) => (Math.abs(x) < 1e-12 ? 0 : x).toFixed(d);
+  function matTable(M, labels, d) {
+    let h = '<table><tr><th></th>' + labels.map(l => `<th>${l}</th>`).join('') + '</tr>';
+    for (let i = 0; i < 3; i++) h += `<tr><th>${labels[i]}</th>` + [0, 1, 2].map(j => `<td>${f(M[i][j], d)}</td>`).join('') + '</tr>';
+    return h + '</table>';
+  }
+  function renderStats(el, st, tr, extra) {
+    const L = ['R', 'G', 'B'];
+    const T3 = [[tr.T[0], tr.T[1], tr.T[2]], [tr.T[3], tr.T[4], tr.T[5]], [tr.T[6], tr.T[7], tr.T[8]]];
+    el.innerHTML = `
+      <div><h4>Samples</h4>${st.n.toLocaleString()}${extra ? ' · ' + extra : ''}</div>
+      <div><h4>Band mean / sigma</h4><table>${L.map((l, i) => `<tr><th>${l}</th><td>${f(st.mu[i], 1)}</td><td>${f(st.sd[i], 1)}</td></tr>`).join('')}</table></div>
+      <div><h4>Correlation matrix</h4>${matTable(st.corr, L, 3)}</div>
+      <div><h4>Covariance matrix</h4>${matTable(st.cov, L, 1)}</div>
+      <div><h4>Eigenvalues (${tr.mode})</h4>${tr.eig.values.map(v => f(v, 4)).join(', ')}</div>
+      <div><h4>Eigenvectors (columns)</h4>${matTable(tr.eig.vectors, L, 3)}</div>
+      <div><h4>Transform T</h4>${matTable(T3, L, 3)}</div>
+      <div><h4>Offset</h4>${Array.from(tr.offset).map(v => f(v, 1)).join(', ')}</div>
+      ${tr.limits ? `<div><h4>Tol clip limits</h4>${tr.limits.map((l, i) => `${L[i]}: ${f(l[0], 1)} … ${f(l[1], 1)}`).join('<br>')}</div>` : ''}`;
+  }
+  function renderWarnings(el, warnings) {
+    el.innerHTML = warnings.length ? `<div class="warn">${warnings.map(w => '⚠ ' + w).join('<br>')}</div>` : '';
+  }
+  function drawScatter(cv, samples, a, b, tr) {
+    const S = 160; cv.width = S; cv.height = S;
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, S, S);
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    ctx.fillStyle = dark ? 'rgba(226,119,63,0.35)' : 'rgba(184,72,29,0.3)';
+    const ns = samples.length / 3, stepK = Math.max(1, Math.floor(ns / 12000));
+    const T = tr && tr.T, o = tr && tr.offset;
+    for (let k = 0; k < ns; k += stepK) {
+      const j = k * 3;
+      let va, vb;
+      if (T) {
+        const r = samples[j], g = samples[j + 1], bl = samples[j + 2];
+        va = T[a * 3] * r + T[a * 3 + 1] * g + T[a * 3 + 2] * bl + o[a];
+        vb = T[b * 3] * r + T[b * 3 + 1] * g + T[b * 3 + 2] * bl + o[b];
+        va = Math.min(255, Math.max(0, va)); vb = Math.min(255, Math.max(0, vb));
+      } else { va = samples[j + a]; vb = samples[j + b]; }
+      ctx.fillRect(va * (S - 1) / 255, (S - 1) - vb * (S - 1) / 255, 1.5, 1.5);
+    }
+  }
+
+  // ---------- Images tab ----------
+  const cards = [];
+  function addFiles(files) {
+    for (const file of files) if (file.type.startsWith('image/')) loadImage(file);
+  }
+  function loadImage(file) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth, h = img.naturalHeight, capped = false;
+      if (Math.max(w, h) > MAX_SIDE) { const k = MAX_SIDE / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); capped = true; }
+      const oc = document.createElement('canvas'); oc.width = w; oc.height = h;
+      const octx = oc.getContext('2d', { willReadFrequently: true });
+      octx.drawImage(img, 0, 0, w, h);
+      const src = octx.getImageData(0, 0, w, h);
+      makeCard({ name: file.name, w, h, capped, origW: img.naturalWidth, origH: img.naturalHeight, src, origCanvas: oc });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); alert(`Could not decode ${file.name}`); };
+    img.src = url;
+  }
+  function makeCard(item) {
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = `
+      <div class="top"><span class="name"></span><span class="meta"></span></div>
+      <div class="pair">
+        <figure><canvas class="cvA"></canvas><figcaption><span>Original</span></figcaption></figure>
+        <figure><canvas class="cvB"></canvas><figcaption><span>Decorrelation stretch</span><span class="time"></span></figcaption></figure>
+      </div>
+      <div class="actions">
+        <button class="sm compare">Hold to compare</button>
+        <button class="sm download">Download PNG</button>
+        <button class="sm remove">Remove</button>
+      </div>
+      <div class="warnbox"></div>
+      <details><summary>Statistics report</summary><div class="stats"></div></details>
+      <details><summary>Band scatter plots (before → after)</summary>
+        <div class="scatter">
+          <figure><canvas data-a="0" data-b="1" data-after="0"></canvas><figcaption>R–G before</figcaption></figure>
+          <figure><canvas data-a="1" data-b="2" data-after="0"></canvas><figcaption>G–B before</figcaption></figure>
+          <figure><canvas data-a="0" data-b="2" data-after="0"></canvas><figcaption>R–B before</figcaption></figure>
+          <figure><canvas data-a="0" data-b="1" data-after="1"></canvas><figcaption>R–G after</figcaption></figure>
+          <figure><canvas data-a="1" data-b="2" data-after="1"></canvas><figcaption>G–B after</figcaption></figure>
+          <figure><canvas data-a="0" data-b="2" data-after="1"></canvas><figcaption>R–B after</figcaption></figure>
+        </div></details>`;
+    card.querySelector('.name').textContent = item.name;
+    card.querySelector('.meta').textContent = `${item.origW}×${item.origH}` + (item.capped ? ` → processed at ${item.w}×${item.h}` : '');
+    const cvA = card.querySelector('.cvA'), cvB = card.querySelector('.cvB');
+    cvA.width = cvB.width = item.w; cvA.height = cvB.height = item.h;
+    cvA.getContext('2d').drawImage(item.origCanvas, 0, 0);
+    item.card = card; item.cvB = cvB; item.dst = new ImageData(item.w, item.h);
+    cards.push(item);
+    $('cards').prepend(card);
+    processCard(item);
+
+    const ctxB = cvB.getContext('2d');
+    const cmp = card.querySelector('.compare');
+    const showOrig = e => { e.preventDefault(); ctxB.drawImage(item.origCanvas, 0, 0); };
+    const showOut = () => ctxB.putImageData(item.dst, 0, 0);
+    cmp.addEventListener('pointerdown', showOrig);
+    cmp.addEventListener('pointerup', showOut); cmp.addEventListener('pointerleave', showOut); cmp.addEventListener('pointercancel', showOut);
+    cvB.addEventListener('pointerdown', showOrig);
+    cvB.addEventListener('pointerup', showOut); cvB.addEventListener('pointerleave', showOut); cvB.addEventListener('pointercancel', showOut);
+    card.querySelector('.download').addEventListener('click', () => downloadCanvas(cvB, item.name.replace(/\.[^.]+$/, '') + '_dcs.png'));
+    card.querySelector('.remove').addEventListener('click', () => { card.remove(); cards.splice(cards.indexOf(item), 1); });
+    card.querySelectorAll('details').forEach(d => d.addEventListener('toggle', () => { if (d.open) renderCardDetails(item); }));
+  }
+  function processCard(item) {
+    const opts = readOpts();
+    const stride = opts.stride || autoStride(item.w, item.h);
+    const t0 = performance.now();
+    const st = DCS.computeStats(item.src.data, item.w, item.h, stride);
+    const tr = DCS.buildTransform(st, opts);
+    DCS.applyTransform(item.src.data, item.dst.data, tr.T, tr.offset);
+    item.cvB.getContext('2d').putImageData(item.dst, 0, 0);
+    const ms = performance.now() - t0;
+    item.stats = st; item.tr = tr; item.stride = stride;
+    item.card.querySelector('.time').textContent = `${ms.toFixed(0)} ms`;
+    renderWarnings(item.card.querySelector('.warnbox'), tr.warnings);
+    renderCardDetails(item);
+  }
+  function renderCardDetails(item) {
+    const ds = item.card.querySelectorAll('details');
+    if (ds[0].open) renderStats(item.card.querySelector('.stats'), item.stats, item.tr, `stride ${item.stride}`);
+    if (ds[1].open) item.card.querySelectorAll('.scatter canvas').forEach(cv =>
+      drawScatter(cv, item.stats.samples, +cv.dataset.a, +cv.dataset.b, cv.dataset.after === '1' ? item.tr : null));
+  }
+  function reprocessAllCards() { for (const it of cards) processCard(it); }
+  function downloadCanvas(cv, name) {
+    cv.toBlob(blob => {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }, 'image/png');
+  }
+
+  const drop = $('drop');
+  $('pickLink').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+  ['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  document.addEventListener('drop', e => { if (e.dataTransfer?.files?.length) { showTab('images'); addFiles(e.dataTransfer.files); } });
+  document.addEventListener('paste', e => {
+    const files = Array.from(e.clipboardData?.files || []);
+    if (files.length) { showTab('images'); addFiles(files); }
+  });
+
+  // ---------- Camera tab ----------
+  const video = $('camVideo'), camOut = $('camOut'), camCtx = camOut.getContext('2d', { willReadFrequently: true });
+  const thumb = document.createElement('canvas'); thumb.width = 160; thumb.height = 120;
+  const thumbCtx = thumb.getContext('2d', { willReadFrequently: true });
+  let stream = null, facing = 'environment', raf = 0, frozen = false, camDirty = true;
+  let ema = null, camTr = null, frameDst = null, frames = 0, fpsT = performance.now();
+
+  $('camStart').addEventListener('click', () => stream ? stopCamera() : startCamera());
+  $('camSwitch').addEventListener('click', () => { facing = facing === 'environment' ? 'user' : 'environment'; if (stream) { stopCamera(); startCamera(); } });
+  $('camFreeze').addEventListener('click', () => { frozen = !frozen; $('camFreeze').setAttribute('aria-pressed', String(frozen)); });
+  $('camSnap').addEventListener('click', () => downloadCanvas(camOut, `dcs_snapshot_${new Date().toISOString().replace(/[:.]/g, '-')}.png`));
+
+  async function startCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) { $('camMsg').textContent = 'getUserMedia is not available in this browser or context (needs https:// or localhost).'; return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    } catch (err) {
+      $('camMsg').textContent = `Camera unavailable: ${err.name} ${err.message || ''}`.trim(); return;
+    }
+    video.srcObject = stream;
+    await video.play();
+    const vw = video.videoWidth || 640, vh = video.videoHeight || 480;
+    const pw = Math.min(640, vw), ph = Math.round(pw * vh / vw);
+    camOut.width = pw; camOut.height = ph;
+    frameDst = new ImageData(pw, ph);
+    ema = null; camTr = null; camDirty = true; frames = 0; fpsT = performance.now();
+    $('camStart').textContent = 'Stop camera';
+    for (const id of ['camSwitch', 'camFreeze', 'camSnap']) $(id).disabled = false;
+    $('camMsg').textContent = `Processing at ${pw}×${ph} (source ${vw}×${vh}). Statistics from a 160×120 thumbnail, smoothed over time.`;
+    raf = requestAnimationFrame(tick);
+  }
+  function stopCamera() {
+    cancelAnimationFrame(raf); raf = 0;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.srcObject = null;
+    $('camStart').textContent = 'Start camera';
+    for (const id of ['camSwitch', 'camFreeze', 'camSnap']) $(id).disabled = true;
+    $('fps').textContent = '';
+  }
+  function tick() {
+    raf = requestAnimationFrame(tick);
+    if (video.readyState < 2) return;
+    const w = camOut.width, h = camOut.height;
+    if (!frozen || !camTr || camDirty) {
+      thumbCtx.drawImage(video, 0, 0, thumb.width, thumb.height);
+      const st = DCS.computeStats(thumbCtx.getImageData(0, 0, thumb.width, thumb.height).data, thumb.width, thumb.height, 1);
+      const alpha = frozen ? 0 : parseFloat($('camAlpha').value);
+      if (!ema || alpha >= 1) ema = st;
+      else if (alpha > 0) {
+        for (let l = 0; l < 3; l++) {
+          ema.mu[l] += alpha * (st.mu[l] - ema.mu[l]);
+          for (let m = 0; m < 3; m++) ema.cov[l][m] += alpha * (st.cov[l][m] - ema.cov[l][m]);
+        }
+        ema.samples = st.samples; ema.n = st.n;
+        DCS.withDerived(ema);
+      }
+      camTr = DCS.buildTransform(ema, readOpts());
+      camDirty = false;
+    }
+    if ((frames & 15) === 0) {
+      renderWarnings($('camWarn'), camTr.warnings);
+      if ($('camStats').parentElement.open) renderStats($('camStats'), ema, camTr, frozen ? 'frozen (transform locked)' : 'live');
+    }
+    camCtx.drawImage(video, 0, 0, w, h);
+    const src = camCtx.getImageData(0, 0, w, h);
+    DCS.applyTransform(src.data, frameDst.data, camTr.T, camTr.offset);
+    camCtx.putImageData(frameDst, 0, 0);
+    frames++;
+    const now = performance.now();
+    if (now - fpsT >= 1000) { $('fps').textContent = `${(frames * 1000 / (now - fpsT)).toFixed(0)} fps`; frames = 0; fpsT = now; }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden && stream) stopCamera(); });
+
+  // ---------- tabs ----------
+  function showTab(name) {
+    for (const b of document.querySelectorAll('nav [role=tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
+    $('tab-images').hidden = name !== 'images';
+    $('tab-camera').hidden = name !== 'camera';
+    if (name !== 'camera' && stream) stopCamera();
+  }
+  document.querySelectorAll('nav [role=tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+})();
+</script>
+</body>
+</html>
