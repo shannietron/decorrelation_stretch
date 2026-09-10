@@ -16,6 +16,7 @@
         --accent:#e2773f;--accent-fg:#111;--warn-bg:#3a2a10;--warn-fg:#f3c98a}
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);
   font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   padding:0 16px 48px}
@@ -60,10 +61,21 @@ summary{cursor:pointer;color:var(--muted)}
 .scatter figure{margin:0}
 .scatter canvas{width:100%;aspect-ratio:1;max-width:100%;border:1px solid var(--border);border-radius:4px;background:var(--bg)}
 .scatter figcaption{font-size:11px;color:var(--muted);text-align:center}
+.curtain{position:relative;touch-action:none;user-select:none;-webkit-user-select:none;cursor:ew-resize;outline:none;--x:50%}
+.curtain canvas{display:block;width:100%;max-width:100%;height:auto;border-radius:4px;background:#000}
+.curtain canvas.top{position:absolute;top:0;left:0;height:100%;clip-path:inset(0 0 0 var(--x))}
+.curtain .handle{position:absolute;top:0;bottom:0;left:var(--x);width:2px;margin-left:-1px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.45);pointer-events:none}
+.curtain .handle::after{content:"⟷";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;background:#fff;color:#222;font-size:16px;line-height:34px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.curtain:focus-visible .handle{background:var(--accent)}
+.curtain .labels{position:absolute;top:8px;left:0;right:0;display:flex;justify-content:space-between;padding:0 10px;font-size:11px;pointer-events:none}
+.curtain .labels span{background:rgba(0,0,0,.55);color:#fff;padding:2px 7px;border-radius:3px}
 .camrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .camrow .fps{font-family:var(--mono);color:var(--muted);margin-left:auto}
 .camview{background:#000;border-radius:8px;overflow:hidden;max-width:960px}
 .camview canvas{width:100%;max-width:100%;height:auto;display:block}
+.camview:not(.curtain){cursor:default}
+.camview:not(.curtain) .base,.camview:not(.curtain) .handle,.camview:not(.curtain) .labels{display:none}
+.camview:not(.curtain) canvas.top{position:static;clip-path:none;height:auto}
 #camMsg{color:var(--muted);margin:8px 0 0}
 footer{margin-top:28px;color:var(--muted);font-size:12px;border-top:1px solid var(--border);padding-top:10px}
 footer a{color:inherit}
@@ -110,6 +122,12 @@ footer a{color:inherit}
       <option value="5">5</option>
     </select>
   </label>
+  <label>View
+    <select id="optView">
+      <option value="side">Side by side</option>
+      <option value="curtain">Curtain (drag to compare)</option>
+    </select>
+  </label>
   <div class="presets">
     <button type="button" id="presetNasa" title="Target mean 127.5, sigma 50, correlation matrix">NASA / ASTER</button>
     <button type="button" id="presetMatlab" title="Keep each band's own mean and sigma, as MATLAB decorrstretch does by default">MATLAB (preserve)</button>
@@ -136,7 +154,12 @@ footer a{color:inherit}
     </label>
     <span class="fps" id="fps"></span>
   </div>
-  <div class="camview"><canvas id="camOut" width="640" height="480"></canvas></div>
+  <div class="camview" id="camView" tabindex="0" aria-label="Camera output; in curtain view drag left or right to compare">
+    <canvas id="camRaw" class="base" width="640" height="480"></canvas>
+    <canvas id="camOut" class="top" width="640" height="480"></canvas>
+    <div class="labels"><span>Original</span><span>Stretched</span></div>
+    <div class="handle"></div>
+  </div>
   <p id="camMsg">Camera access needs https:// or localhost on phones. Desktop Chrome and Safari also allow it from file://.</p>
   <div id="camWarn"></div>
   <details><summary>Live statistics</summary><div id="camStats" class="stats"></div></details>
@@ -422,6 +445,10 @@ if (typeof module !== 'undefined') module.exports = DCS;
         <figure><canvas class="cvA"></canvas><figcaption><span>Original</span></figcaption></figure>
         <figure><canvas class="cvB"></canvas><figcaption><span>Decorrelation stretch</span><span class="time"></span></figcaption></figure>
       </div>
+      <div class="curtain" hidden tabindex="0" aria-label="Drag left or right to compare original and stretched">
+        <div class="labels"><span>Original</span><span>Stretched</span></div>
+        <div class="handle"></div>
+      </div>
       <div class="actions">
         <button class="sm compare">Hold to compare</button>
         <button class="sm download">Download PNG</button>
@@ -450,7 +477,7 @@ if (typeof module !== 'undefined') module.exports = DCS;
 
     const ctxB = cvB.getContext('2d');
     const cmp = card.querySelector('.compare');
-    const showOrig = e => { e.preventDefault(); ctxB.drawImage(item.origCanvas, 0, 0); };
+    const showOrig = e => { if (e.currentTarget === cvB && viewMode() === 'curtain') return; e.preventDefault(); ctxB.drawImage(item.origCanvas, 0, 0); };
     const showOut = () => ctxB.putImageData(item.dst, 0, 0);
     cmp.addEventListener('pointerdown', showOrig);
     cmp.addEventListener('pointerup', showOut); cmp.addEventListener('pointerleave', showOut); cmp.addEventListener('pointercancel', showOut);
@@ -459,7 +486,46 @@ if (typeof module !== 'undefined') module.exports = DCS;
     card.querySelector('.download').addEventListener('click', () => downloadCanvas(cvB, item.name.replace(/\.[^.]+$/, '') + '_dcs.png'));
     card.querySelector('.remove').addEventListener('click', () => { card.remove(); cards.splice(cards.indexOf(item), 1); });
     card.querySelectorAll('details').forEach(d => d.addEventListener('toggle', () => { if (d.open) renderCardDetails(item); }));
+    item.cvA = cvA; item.pair = card.querySelector('.pair'); item.curtain = card.querySelector('.curtain');
+    setupCurtain(item.curtain);
+    applyCardView(item);
   }
+  // Curtain view: original underneath, stretched on top clipped at --x; drag or arrow keys move the divider.
+  function setupCurtain(el) {
+    let active = false;
+    const setX = frac => el.style.setProperty('--x', (Math.max(0, Math.min(1, frac)) * 100).toFixed(2) + '%');
+    const fromEvent = e => { const r = el.getBoundingClientRect(); setX((e.clientX - r.left) / r.width); };
+    el.addEventListener('pointerdown', e => { if (!el.classList.contains('curtain')) return; active = true; el.setPointerCapture(e.pointerId); fromEvent(e); e.preventDefault(); });
+    el.addEventListener('pointermove', e => { if (active) fromEvent(e); });
+    const stop = () => { active = false; };
+    el.addEventListener('pointerup', stop); el.addEventListener('pointercancel', stop);
+    el.addEventListener('keydown', e => {
+      if (!el.classList.contains('curtain')) return;
+      const cur = parseFloat(el.style.getPropertyValue('--x')) || 50;
+      if (e.key === 'ArrowLeft') { setX((cur - 2) / 100); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { setX((cur + 2) / 100); e.preventDefault(); }
+      else if (e.key === 'Home') { setX(0); e.preventDefault(); }
+      else if (e.key === 'End') { setX(1); e.preventDefault(); }
+    });
+  }
+  function viewMode() { return $('optView').value; }
+  function applyCardView(item) {
+    if (viewMode() === 'curtain') {
+      item.cvB.classList.add('top');
+      item.curtain.prepend(item.cvB); item.curtain.prepend(item.cvA);
+      item.pair.hidden = true; item.curtain.hidden = false;
+    } else {
+      item.cvB.classList.remove('top');
+      const figs = item.pair.querySelectorAll('figure');
+      figs[0].prepend(item.cvA); figs[1].prepend(item.cvB);
+      item.curtain.hidden = true; item.pair.hidden = false;
+    }
+  }
+  function applyViewAll() {
+    for (const it of cards) applyCardView(it);
+    $('camView').classList.toggle('curtain', viewMode() === 'curtain');
+  }
+  $('optView').addEventListener('input', applyViewAll);
   function processCard(item) {
     const opts = readOpts();
     const stride = opts.stride || autoStride(item.w, item.h);
@@ -501,6 +567,8 @@ if (typeof module !== 'undefined') module.exports = DCS;
 
   // ---------- Camera tab ----------
   const video = $('camVideo'), camOut = $('camOut'), camCtx = camOut.getContext('2d', { willReadFrequently: true });
+  const camRaw = $('camRaw'), camRawCtx = camRaw.getContext('2d');
+  setupCurtain($('camView'));
   const thumb = document.createElement('canvas'); thumb.width = 160; thumb.height = 120;
   const thumbCtx = thumb.getContext('2d', { willReadFrequently: true });
   let stream = null, facing = 'environment', raf = 0, frozen = false, camDirty = true;
@@ -522,7 +590,7 @@ if (typeof module !== 'undefined') module.exports = DCS;
     await video.play();
     const vw = video.videoWidth || 640, vh = video.videoHeight || 480;
     const pw = Math.min(640, vw), ph = Math.round(pw * vh / vw);
-    camOut.width = pw; camOut.height = ph;
+    camOut.width = pw; camOut.height = ph; camRaw.width = pw; camRaw.height = ph;
     frameDst = new ImageData(pw, ph);
     ema = null; camTr = null; camDirty = true; frames = 0; fpsT = performance.now();
     $('camStart').textContent = 'Stop camera';
@@ -563,6 +631,7 @@ if (typeof module !== 'undefined') module.exports = DCS;
       if ($('camStats').parentElement.open) renderStats($('camStats'), ema, camTr, frozen ? 'frozen (transform locked)' : 'live');
     }
     camCtx.drawImage(video, 0, 0, w, h);
+    if ($('camView').classList.contains('curtain')) camRawCtx.drawImage(camOut, 0, 0);
     const src = camCtx.getImageData(0, 0, w, h);
     DCS.applyTransform(src.data, frameDst.data, camTr.T, camTr.offset);
     camCtx.putImageData(frameDst, 0, 0);
